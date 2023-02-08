@@ -1,7 +1,7 @@
 Config.dataset_loader = 'dtu_neus'
 Config.batching = 'single_image'
-Config.near = 2
-Config.far = 6
+Config.near = 0
+Config.far = 3
 Config.eval_render_interval = 5
 Config.data_loss_type = 'mse'
 Config.adam_eps = 1e-8
@@ -27,3 +27,5 @@ Config.distortion_loss_mult = 0.
 
 NerfMLP.max_deg_point = 16
 PropMLP.max_deg_point = 16
+
+Config.print_every = 1

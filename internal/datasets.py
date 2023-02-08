@@ -952,7 +952,7 @@ class DTU_NeuS(Dataset):
       # load mask
       im_mask = utils.load_img(str(mask_paths[i]))[..., :3]
       # if apply_mask:
-      image[im_mask<50] = 255
+      image[im_mask<50] = 1.
 
       images.append(image)
       masks.append(im_mask)

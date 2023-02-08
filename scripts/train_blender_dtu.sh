@@ -15,14 +15,25 @@
 
 export CUDA_VISIBLE_DEVICES=0
 
-SCENE=ficus
-EXPERIMENT=blender
-DATA_DIR=/home/tw554/plenoxels/data/nerf_synthetic
-CHECKPOINT_DIR=./results/"$EXPERIMENT"/"$SCENE"
 
-rm "$CHECKPOINT_DIR"/*
+
+SCAN=40
+# SCAN=63
+# SCAN=24
+# SCAN=110
+# SCAN=37
+DATA_DIR="/home/tw554/plenoxels/data/dtu/dtu_scan$SCAN"
+
+
+
+EXPERIMENT=dtu
+CHECKPOINT_DIR=./results/"$EXPERIMENT"/$SCAN
+
+# rm "$CHECKPOINT_DIR"/*
+
 python -m train \
-  --gin_configs=configs/blender_256.gin \
-  --gin_bindings="Config.data_dir = '${DATA_DIR}/${SCENE}'" \
+  --gin_configs=configs/dtu_256.gin \
+  --gin_bindings="Config.data_dir = '$DATA_DIR'" \
   --gin_bindings="Config.checkpoint_dir = '${CHECKPOINT_DIR}'" \
   --logtostderr
+
