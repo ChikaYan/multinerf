@@ -32,6 +32,7 @@ from internal import utils
 import jax
 import numpy as np
 from PIL import Image
+from pathlib import Path
 
 # This is ugly, but it works.
 import sys
@@ -48,6 +49,7 @@ def load_dataset(split, train_dir, config):
       'tat_nerfpp': TanksAndTemplesNerfPP,
       'tat_fvs': TanksAndTemplesFVS,
       'dtu': DTU,
+      'dtu_neus': DTU_NeuS,
   }
   return dataset_dict[config.dataset_loader](split, train_dir, config)
 
@@ -906,6 +908,100 @@ class DTU(Dataset):
     indices = split_indices[self.split]
 
     self.images = images[indices]
+    self.height, self.width = images.shape[1:3]
+    self.camtoworlds = camtoworlds[indices]
+    self.pixtocams = pixtocams[indices]
+
+
+
+class DTU_NeuS(Dataset):
+  """DTU Dataset."""
+
+  def _load_renderings(self, config):
+    """Load images from disk."""
+    if config.render_path:
+      raise ValueError('render_path cannot be used for the DTU dataset.')
+
+
+    img_path = Path(self.data_dir) / 'image'
+    mask_path = Path(self.data_dir) / 'mask'
+
+    image_paths = sorted(img_path.glob('*'))
+    mask_paths = sorted(mask_path.glob('*'))
+    n_images = len(image_paths)
+
+    cam_file_path = Path(self.data_dir) / 'cameras_large.npz'
+    camera_dict = np.load(str(cam_file_path))
+    scale_mats = [camera_dict['scale_mat_%d' % idx].astype(np.float32) for idx in range(n_images)]
+    world_mats = [camera_dict['world_mat_%d' % idx].astype(np.float32) for idx in range(n_images)]
+
+    self.pt_rescale = scale_mats[0]
+
+    images = []
+    masks = []
+    pixtocams = []
+    camtoworlds = []
+
+    # Loop over all images.
+    for i in range(n_images):
+      # load rgb
+      image = utils.load_img(str(image_paths[i])) / 255.
+      if config.factor > 1:
+        raise NotImplementedError
+      
+      # load mask
+      im_mask = utils.load_img(str(mask_paths[i]))[..., :3]
+      # if apply_mask:
+      image[im_mask<50] = 255
+
+      images.append(image)
+      masks.append(im_mask)
+      
+      # Decompose projection matrix into pose and camera matrix.
+      scale_mat = scale_mats[i]
+      world_mat = world_mats[i]
+      P = world_mat @ scale_mat
+      P = P[:3, :4]
+      # intrinsics, pose = load_K_Rt_from_P(None, P)
+      # intrinsics_all.append(torch.from_numpy(intrinsics).float())
+      # all_c2w.append(torch.from_numpy(pose).float())
+      camera_mat, rot_mat, t = cv2.decomposeProjectionMatrix(P)[:3]
+      camera_mat = camera_mat / camera_mat[2, 2]
+      pose = np.eye(4, dtype=np.float32)
+      pose[:3, :3] = rot_mat.transpose()
+      pose[:3, 3] = (t[:3] / t[3])[:, 0]
+      pose = pose[:3]
+      camtoworlds.append(pose)
+
+      pixtocams.append(np.linalg.inv(camera_mat))
+
+    pixtocams = np.stack(pixtocams)
+    camtoworlds = np.stack(camtoworlds)
+    images = np.stack(images)
+    masks = np.stack(masks)
+
+    def rescale_poses(poses):
+      """Rescales camera poses according to maximum x/y/z value."""
+      s = np.max(np.abs(poses[:, :3, -1]))
+      out = np.copy(poses)
+      out[:, :3, -1] /= s
+      return out
+
+    # # Center and scale poses.
+    # camtoworlds, _ = camera_utils.recenter_poses(camtoworlds)
+    # camtoworlds = rescale_poses(camtoworlds)
+    # Flip y and z axes to get poses in OpenGL coordinate system.
+    camtoworlds = camtoworlds @ np.diag([1., -1., -1., 1.]).astype(np.float32)
+
+    all_indices = np.arange(images.shape[0])
+    split_indices = {
+        utils.DataSplit.TEST: all_indices,
+        utils.DataSplit.TRAIN: all_indices,
+    }
+    indices = split_indices[self.split]
+
+    self.images = images[indices]
+    self.masks = masks[indices]
     self.height, self.width = images.shape[1:3]
     self.camtoworlds = camtoworlds[indices]
     self.pixtocams = pixtocams[indices]

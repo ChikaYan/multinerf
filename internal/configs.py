@@ -163,6 +163,7 @@ class Config:
   autoexpose_renders: bool = False  # During rendering, autoexpose each image.
   # For raw test scenes, use affine raw-space color correction.
   eval_raw_affine_cc: bool = False
+  dtu_light_cond: int = 8
 
 
 def define_common_flags():

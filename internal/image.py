@@ -133,7 +133,7 @@ class MetricHarness:
   def __call__(self, rgb_pred, rgb_gt, name_fn=lambda s: s):
     """Evaluate the error between a predicted rgb image and the true image."""
     psnr = float(mse_to_psnr(((rgb_pred - rgb_gt)**2).mean()))
-    ssim = float(self.ssim_fn(rgb_pred, rgb_gt))
+    ssim = 0 # float(self.ssim_fn(rgb_pred, rgb_gt)) # CAUSING OOM!
 
     return {
         name_fn('psnr'): psnr,
