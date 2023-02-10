@@ -386,6 +386,29 @@ def create_render_fn(model: models.Model):
   )
   return render_eval_pfn
 
+def create_density_query_fn(model: models.Model):
+  """Creates pmap'ed function for full image rendering."""
+
+  def  density_query_fn(variables, points):
+    return jax.lax.all_gather(
+        model.apply(
+            variables,
+            None,  # Deterministic.
+            None,
+            train_frac=None,
+            compute_extras=False,
+            points=points,
+            query_density=True),
+        axis_name='batch')
+
+  # pmap over only the data input.
+  density_query_pfn = jax.pmap(
+      density_query_fn,
+      in_axes=(None, 0),
+      axis_name='batch',
+  )
+  return density_query_pfn
+
 
 def setup_model(
     config: configs.Config,
@@ -407,3 +430,21 @@ def setup_model(
   train_pstep = create_train_step(model, config, dataset=dataset)
 
   return model, state, render_eval_pfn, train_pstep, lr_fn
+
+def setup_model_extract_density(
+    config: configs.Config,
+    rng: jnp.array,
+    dataset: Optional[datasets.Dataset] = None,
+):
+# -> Tuple[models.Model, TrainState, Callable[
+#     [FrozenVariableDict, jnp.array, utils.Rays],
+#     MutableMapping[Text, Any]]]:
+
+  dummy_rays = utils.dummy_rays(
+      include_exposure_idx=config.rawnerf_mode, include_exposure_values=True)
+  model, variables = models.construct_model(rng, dummy_rays, config)
+
+  state, lr_fn = create_optimizer(config, variables)
+  density_query_pfn = create_density_query_fn(model)
+
+  return model, state, density_query_pfn, 

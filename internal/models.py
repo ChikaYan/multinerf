@@ -71,6 +71,9 @@ class Model(nn.Module):
   use_gpu_resampling: bool = False  # Use gather ops for faster GPU resampling.
   opaque_background: bool = False  # If true, make the background opaque.
 
+  # def setup(self) -> None:
+  #   self.NerfMLP_0 = NerfMLP()
+
   @nn.compact
   def __call__(
       self,
@@ -79,6 +82,8 @@ class Model(nn.Module):
       train_frac,
       compute_extras,
       zero_glo=True,
+      points=None,
+      query_density=False,
   ):
     """The mip-NeRF Model.
 
@@ -97,6 +102,28 @@ class Model(nn.Module):
     # being regularized.
     nerf_mlp = NerfMLP()
     prop_mlp = nerf_mlp if self.single_mlp else PropMLP()
+
+    if query_density:
+      if self.num_glo_features > 0:
+        if not zero_glo:
+          # Construct/grab GLO vectors for the cameras of each input ray.
+          raise NotImplementedError
+          # glo_vecs = nn.Embed(self.num_glo_embeddings, self.num_glo_features)
+          # cam_idx = rays.cam_idx[..., 0]
+          # glo_vec = glo_vecs(cam_idx)
+        else:
+          glo_vec = jnp.zeros(points.shape[:-1] + (self.num_glo_features,))
+      else:
+        glo_vec = None
+
+      key, rng = random_split(rng)
+      ray_results = nerf_mlp(
+          key,
+          (points, jnp.zeros([*points.shape, 3])),
+          viewdirs=jnp.zeros_like(points[:, 0, :]),
+          glo_vec= glo_vec,
+      )
+      return ray_results['raw_density']
 
     if self.num_glo_features > 0:
       if not zero_glo:
@@ -310,6 +337,52 @@ class Model(nn.Module):
         renderings[i]['ray_rgbs'] = avg_rgbs[i]
 
     return renderings, ray_history
+  
+  def query_density(
+      self,
+      rng,
+      points,
+      zero_glo=True,
+  ):
+    """The mip-NeRF Model.
+
+    Args:
+      rng: random number generator (or None for deterministic output).
+      rays: util.Rays, a pytree of ray origins, directions, and viewdirs.
+      train_frac: float in [0, 1], what fraction of training is complete.
+      compute_extras: bool, if True, compute extra quantities besides color.
+      zero_glo: bool, if True, when using GLO pass in vector of zeros.
+
+    Returns:
+      ret: list, [*(rgb, distance, acc)]
+    """
+
+    # Construct MLPs. WARNING: Construction order may matter, if MLP weights are
+    # being regularized.
+    nerf_mlp = self.NerfMLP_0
+
+    if self.num_glo_features > 0:
+      if not zero_glo:
+        # Construct/grab GLO vectors for the cameras of each input ray.
+        raise NotImplementedError
+        # glo_vecs = nn.Embed(self.num_glo_embeddings, self.num_glo_features)
+        # cam_idx = rays.cam_idx[..., 0]
+        # glo_vec = glo_vecs(cam_idx)
+      else:
+        glo_vec = jnp.zeros(points.shape[:-1] + (self.num_glo_features,))
+    else:
+      glo_vec = None
+
+      key, rng = random_split(rng)
+      ray_results = nerf_mlp(
+          key,
+          (points, jnp.zeros([*points.shape, 3])),
+          viewdirs=jnp.zeros_like(points[:, 0, :]),
+          glo_vec= glo_vec,
+      )
+
+      
+    return ray_results['raw_density']
 
 
 def construct_model(rng, rays, config):
@@ -449,6 +522,8 @@ class MLP(nn.Module):
           coord.lift_and_diagonalize(means, covs, self.pos_basis_t))
       x = coord.integrated_pos_enc(lifted_means, lifted_vars,
                                    self.min_deg_point, self.max_deg_point)
+      # x = coord.integrated_pos_enc(lifted_means, jnp.zeros_like(lifted_vars),
+      #                              self.min_deg_point, self.max_deg_point)
 
       inputs = x
       # Evaluate network to produce the output density.
@@ -602,6 +677,7 @@ class MLP(nn.Module):
       rgb = rgb * (1 + 2 * self.rgb_padding) - self.rgb_padding
 
     return dict(
+        raw_density=raw_density + self.density_bias,
         density=density,
         rgb=rgb,
         raw_grad_density=raw_grad_density,

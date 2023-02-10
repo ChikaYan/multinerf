@@ -10,3 +10,4 @@ gin-config
 dm_pix
 rawpy
 mediapy
+tqdm
