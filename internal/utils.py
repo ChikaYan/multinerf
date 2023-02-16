@@ -84,6 +84,7 @@ class Batch:
   """Data batch for NeRF training or testing."""
   rays: Union[Pixels, Rays]
   rgb: Optional[_Array] = None
+  masks: Optional[_Array] = None
   disps: Optional[_Array] = None
   normals: Optional[_Array] = None
   alphas: Optional[_Array] = None

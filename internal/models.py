@@ -307,6 +307,10 @@ class Model(nn.Module):
               if k.startswith('normals') or k in ['roughness']
           })
 
+      for k in list(rendering):
+        if k.startswith('distance_'):
+          rendering[f'{k}_pt'] = rays.origins + rays.directions * rendering[k][:, None]          
+
       if compute_extras:
         # Collect some rays to visualize directly. By naming these quantities
         # with `ray_` they get treated differently downstream --- they're

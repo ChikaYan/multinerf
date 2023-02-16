@@ -36,8 +36,15 @@ import jax
 from jax import random
 import jax.numpy as jnp
 import numpy as np
+from jax.config import config as jax_config
+import pickle
+from pathlib import Path
+import sklearn.neighbors as skln
+from absl import flags
+# jax_config.update('jax_disable_jit', True)
 
 configs.define_common_flags()
+flags.DEFINE_string('downsample_density', 0.2, 'Required by GINXM, not used.')
 jax.config.parse_flags_with_absl()
 
 
@@ -89,6 +96,7 @@ def main(unused_argv):
     metrics_cc = []
     showcases = []
     render_times = []
+    pts = {}
     for idx in range(dataset.size):
       eval_start_time = time.time()
       batch = next(dataset)
@@ -109,8 +117,23 @@ def main(unused_argv):
           config,
       )
 
+
+      for k in rendering:
+        if k.startswith('distance_') and not k.endswith('_pt'):
+          valid_mask = (batch.masks) & (rendering[k] > config.near) & (rendering[k] < config.far)
+          rendering[f'{k}_pt'] = rendering[f'{k}_pt'][valid_mask]
+
+
       if jax.host_id() != 0:  # Only record via host 0.
         continue
+
+      # log points
+      
+      for k in rendering:
+        if k.endswith('_pt'):
+          if k not in pts:
+            pts[k] = []
+          pts[k].append(np.array(rendering[k], dtype=np.float32))
 
       render_times.append((time.time() - eval_start_time))
       print(f'Rendered in {render_times[-1]:0.3f}s')
@@ -240,6 +263,21 @@ def main(unused_argv):
           np.set_printoptions(threshold=sys.maxsize)
           with utils.open_file(path_fn(f'ray_data_{step}_{i}.txt'), 'w') as f:
             f.write(repr(rays))
+      
+      pt_path = Path(config.checkpoint_dir) / 'pts'
+      pt_path.mkdir(exist_ok=True)
+      for k in pts:
+        all_pts = np.concatenate(pts[k], axis=0)
+        nn_engine = skln.NearestNeighbors(n_neighbors=1, radius=flags.FLAGS.downsample_density, algorithm='kd_tree', n_jobs=-1)
+        nn_engine.fit(all_pts)
+        rnn_idxs = nn_engine.radius_neighbors(all_pts, radius=flags.FLAGS.downsample_density, return_distance=False)
+        mask = np.ones(all_pts.shape[0], dtype=np.bool_)
+        for curr, idxs in enumerate(rnn_idxs):
+            if mask[curr]:
+                mask[idxs] = 0
+                mask[curr] = 1
+        all_pts = all_pts[mask]
+        np.save(str(pt_path / f'{k}s.npy'), all_pts)
 
     # A hack that forces Jax to keep all TPUs alive until every TPU is finished.
     x = jnp.ones([jax.local_device_count()])

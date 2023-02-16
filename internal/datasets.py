@@ -288,6 +288,7 @@ class Dataset(threading.Thread, metaclass=abc.ABCMeta):
     # Providing type comments for these attributes, they must be correctly
     # initialized by _load_renderings() (see docstring) in any subclass.
     self.images: np.ndarray = None
+    self.masks: np.ndarray = None
     self.camtoworlds: np.ndarray = None
     self.pixtocams: np.ndarray = None
     self.height: int = None
@@ -443,6 +444,8 @@ class Dataset(threading.Thread, metaclass=abc.ABCMeta):
     batch['rays'] = rays
     if not self.render_path:
       batch['rgb'] = self.images[cam_idx, pix_y_int, pix_x_int]
+      if self.masks is not None:
+        batch['masks'] = self.masks[cam_idx, pix_y_int, pix_x_int]
     if self._load_disps:
       batch['disps'] = self.disp_images[cam_idx, pix_y_int, pix_x_int]
     if self._load_normals:
@@ -978,7 +981,7 @@ class DTU_NeuS(Dataset):
     pixtocams = np.stack(pixtocams)
     camtoworlds = np.stack(camtoworlds)
     images = np.stack(images)
-    masks = np.stack(masks)
+    masks = np.stack(masks)[...,0] > 50
 
     def rescale_poses(poses):
       """Rescales camera poses according to maximum x/y/z value."""
