@@ -41,12 +41,25 @@ import pickle
 from pathlib import Path
 import sklearn.neighbors as skln
 from absl import flags
+from tqdm import tqdm
 # jax_config.update('jax_disable_jit', True)
 
 configs.define_common_flags()
-flags.DEFINE_string('downsample_density', 0.2, 'Required by GINXM, not used.')
+flags.DEFINE_float('downsample_density', 0.2, 'Required by GINXM, not used.')
 jax.config.parse_flags_with_absl()
 
+
+def downsample(pts):
+  nn_engine = skln.NearestNeighbors(n_neighbors=1, radius=flags.FLAGS.downsample_density, algorithm='kd_tree', n_jobs=-1)
+  nn_engine.fit(pts)
+  rnn_idxs = nn_engine.radius_neighbors(pts, radius=flags.FLAGS.downsample_density, return_distance=False)
+  mask = np.ones(pts.shape[0], dtype=np.bool_)
+  for curr, idxs in enumerate(rnn_idxs):
+      if mask[curr]:
+          mask[idxs] = 0
+          mask[curr] = 1
+  pts = pts[mask]
+  return pts
 
 def main(unused_argv):
   config = configs.load_config(save_config=False)
@@ -97,7 +110,7 @@ def main(unused_argv):
     showcases = []
     render_times = []
     pts = {}
-    for idx in range(dataset.size):
+    for idx in tqdm(range(dataset.size)):
       eval_start_time = time.time()
       batch = next(dataset)
       if idx >= num_eval:
@@ -120,7 +133,9 @@ def main(unused_argv):
 
       for k in rendering:
         if k.startswith('distance_') and not k.endswith('_pt'):
-          valid_mask = (batch.masks) & (rendering[k] > config.near) & (rendering[k] < config.far)
+          valid_mask =  (rendering[k] > config.near) & (rendering[k] < config.far)
+          if batch.masks is not None:
+            valid_mask = valid_mask & batch.masks
           rendering[f'{k}_pt'] = rendering[f'{k}_pt'][valid_mask]
 
 
@@ -128,12 +143,13 @@ def main(unused_argv):
         continue
 
       # log points
-      
       for k in rendering:
         if k.endswith('_pt'):
           if k not in pts:
-            pts[k] = []
-          pts[k].append(np.array(rendering[k], dtype=np.float32))
+            pts[k] = np.array(rendering[k], dtype=np.float32)
+          else:
+            pts[k] = np.concatenate([pts[k], np.array(rendering[k], dtype=np.float32)], axis=0)
+          # pts[k] = downsample(pts[k])
 
       render_times.append((time.time() - eval_start_time))
       print(f'Rendered in {render_times[-1]:0.3f}s')
@@ -267,17 +283,21 @@ def main(unused_argv):
       pt_path = Path(config.checkpoint_dir) / 'pts'
       pt_path.mkdir(exist_ok=True)
       for k in pts:
-        all_pts = np.concatenate(pts[k], axis=0)
-        nn_engine = skln.NearestNeighbors(n_neighbors=1, radius=flags.FLAGS.downsample_density, algorithm='kd_tree', n_jobs=-1)
-        nn_engine.fit(all_pts)
-        rnn_idxs = nn_engine.radius_neighbors(all_pts, radius=flags.FLAGS.downsample_density, return_distance=False)
-        mask = np.ones(all_pts.shape[0], dtype=np.bool_)
-        for curr, idxs in enumerate(rnn_idxs):
-            if mask[curr]:
-                mask[idxs] = 0
-                mask[curr] = 1
-        all_pts = all_pts[mask]
-        np.save(str(pt_path / f'{k}s.npy'), all_pts)
+        # all_pts = np.concatenate(pts[k], axis=0)
+        # print(f'Running KNN for {k}')
+        # print(all_pts.shape)
+        # nn_engine = skln.NearestNeighbors(n_neighbors=1, radius=flags.FLAGS.downsample_density, algorithm='kd_tree', n_jobs=-1)
+        # nn_engine.fit(all_pts)
+        # rnn_idxs = nn_engine.radius_neighbors(all_pts, radius=flags.FLAGS.downsample_density, return_distance=False)
+        # mask = np.ones(all_pts.shape[0], dtype=np.bool_)
+        # for curr, idxs in enumerate(rnn_idxs):
+        #     if mask[curr]:
+        #         mask[idxs] = 0
+        #         mask[curr] = 1
+        # all_pts = all_pts[mask]
+        if hasattr(dataset, 'pt_rescale'):
+          pts[k] = pts[k] * dataset.pt_rescale[0,0] + dataset.pt_rescale[:3,3][None]
+        np.save(str(pt_path / f'{k}s.npy'), pts[k])
 
     # A hack that forces Jax to keep all TPUs alive until every TPU is finished.
     x = jnp.ones([jax.local_device_count()])

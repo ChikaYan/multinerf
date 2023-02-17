@@ -121,6 +121,7 @@ class Config:
   eval_save_output: bool = True  # If True save predicted images to disk.
   eval_save_ray_data: bool = False  # If True save individual ray traces.
   eval_render_interval: int = 1  # The interval between images saved to disk.
+  eval_novel_spiral_views: bool = True # Use novel spiral views from eval
   eval_dataset_limit: int = jnp.iinfo(jnp.int32).max  # Num test images to eval.
   eval_quantize_metrics: bool = True  # If True, run metrics on 8-bit images.
   eval_crop_borders: int = 0  # Ignore c border pixels in eval (x[c:-c, c:-c]).

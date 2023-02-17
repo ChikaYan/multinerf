@@ -446,6 +446,8 @@ class Dataset(threading.Thread, metaclass=abc.ABCMeta):
       batch['rgb'] = self.images[cam_idx, pix_y_int, pix_x_int]
       if self.masks is not None:
         batch['masks'] = self.masks[cam_idx, pix_y_int, pix_x_int]
+      else:
+        batch['masks'] = None
     if self._load_disps:
       batch['disps'] = self.disp_images[cam_idx, pix_y_int, pix_x_int]
     if self._load_normals:
@@ -563,7 +565,106 @@ class Blender(Dataset):
     self.focal = .5 * self.width / np.tan(.5 * float(meta['camera_angle_x']))
     self.pixtocams = camera_utils.get_pixtocam(self.focal, self.width,
                                                self.height)
+    
+    if config.eval_novel_spiral_views:
+      up_rot = self.camtoworlds[:, :3, :3]
+      ups = np.matmul(up_rot, np.array([0, -1.0, 0])[None, :, None])[..., 0]
+      vec_up = np.mean(ups, axis=0)
+      vec_up /= np.linalg.norm(vec_up)
 
+      num_views = 100
+
+      repeats = 10
+      angles = np.linspace(-180, 180, (num_views) // repeats + 1)[:-1]
+      angles = np.concatenate([angles for _ in range(repeats)])
+      elevations = np.linspace(-90, 90, num_views)
+
+      c2ws = [
+          pose_spherical(
+              angle,
+              ele,
+              2.5, # args.radius,
+              vec_up=vec_up,
+          )
+          for ele, angle in zip(elevations, angles)
+      ]
+      c2ws = np.stack(c2ws, axis=0)
+
+      # import pdb; pdb.set_trace()
+
+      self.camtoworlds = c2ws
+      self.images = np.ones_like(self.images)[:num_views, ...]
+
+
+
+
+
+def _trans_t(t):
+  return np.array(
+      [
+          [1, 0, 0, 0],
+          [0, 1, 0, 0],
+          [0, 0, 1, t],
+          [0, 0, 0, 1],
+      ],
+      dtype=np.float32,
+  )
+
+
+def _rot_phi(phi):
+  return np.array(
+      [
+          [1, 0, 0, 0],
+          [0, np.cos(phi), -np.sin(phi), 0],
+          [0, np.sin(phi), np.cos(phi), 0],
+          [0, 0, 0, 1],
+      ],
+      dtype=np.float32,
+  )
+
+
+def _rot_theta(th):
+  return np.array(
+      [
+          [np.cos(th), 0, -np.sin(th), 0],
+          [0, 1, 0, 0],
+          [np.sin(th), 0, np.cos(th), 0],
+          [0, 0, 0, 1],
+      ],
+      dtype=np.float32,
+  )
+
+
+def pose_spherical(theta : float, phi : float, radius : float, offset=None,
+                  vec_up=None):
+  """
+  Generate spherical rendering poses, from NeRF. Forgive the code horror
+  :return: r (3,), t (3,)
+  """
+  c2w = _trans_t(radius)
+  c2w = _rot_phi(phi / 180.0 * np.pi) @ c2w
+  c2w = _rot_theta(theta / 180.0 * np.pi) @ c2w
+  c2w = (
+      np.array(
+          [[-1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]],
+          dtype=np.float32,
+      )
+      @ c2w
+  )
+  if vec_up is not None:
+    vec_up = vec_up / np.linalg.norm(vec_up)
+    vec_1 = np.array([vec_up[0], -vec_up[2], vec_up[1]])
+    vec_2 = np.cross(vec_up, vec_1)
+
+    trans = np.eye(4, 4, dtype=np.float32)
+    trans[:3, 0] = vec_1
+    trans[:3, 1] = vec_2
+    trans[:3, 2] = vec_up
+    c2w = trans @ c2w
+  c2w = c2w @ np.diag(np.array([1, -1, -1, 1], dtype=np.float32))
+  if offset is not None:
+    c2w[:3, 3] += offset
+  return c2w
 
 class LLFF(Dataset):
   """LLFF Dataset."""
