@@ -204,10 +204,13 @@ def volumetric_rendering(rgbs,
     weights_aug = jnp.concatenate([weights, bg_w], axis=-1)
 
     ps = [5, 50, 95]
+    # ps = [50]
     distance_percentiles = stepfun.weighted_percentile(t_aug, weights_aug, ps)
 
     for i, p in enumerate(ps):
       s = 'median' if p == 50 else 'percentile_' + str(p)
       rendering['distance_' + s] = distance_percentiles[..., i]
+    
+    rendering['distance_mode'] = t_mids[jnp.arange(t_mids.shape[0]), weights.argmax(axis=-1)]
 
   return rendering

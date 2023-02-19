@@ -12,3 +12,5 @@ results/
 slurm-*.out
 
 pip/
+
+results_refnerf/

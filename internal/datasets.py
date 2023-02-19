@@ -567,7 +567,8 @@ class Blender(Dataset):
                                                self.height)
     
     if config.eval_novel_spiral_views:
-      up_rot = self.camtoworlds[:, :3, :3]
+      cam_trans = np.diag([1, -1, -1, 1])
+      up_rot = (self.camtoworlds @ cam_trans)[:, :3, :3]
       ups = np.matmul(up_rot, np.array([0, -1.0, 0])[None, :, None])[..., 0]
       vec_up = np.mean(ups, axis=0)
       vec_up /= np.linalg.norm(vec_up)
@@ -583,7 +584,7 @@ class Blender(Dataset):
           pose_spherical(
               angle,
               ele,
-              2.5, # args.radius,
+              2.5 * 3. / 2., # args.radius,
               vec_up=vec_up,
           )
           for ele, angle in zip(elevations, angles)
@@ -592,7 +593,7 @@ class Blender(Dataset):
 
       # import pdb; pdb.set_trace()
 
-      self.camtoworlds = c2ws
+      self.camtoworlds = c2ws @ cam_trans # transfer back to OpenGL
       self.images = np.ones_like(self.images)[:num_views, ...]
 
 

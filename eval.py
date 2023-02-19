@@ -131,20 +131,24 @@ def main(unused_argv):
       )
 
 
-      for k in rendering:
+      for k in list(rendering):
         if k.startswith('distance_') and not k.endswith('_pt'):
-          valid_mask =  (rendering[k] > config.near) & (rendering[k] < config.far)
+          pts_temp = rendering[f'{k}_pt']
+          valid_mask =  (rendering[k] >= config.near) & (rendering[k] <= config.far) & (rendering['acc'] > 0.1)
           if batch.masks is not None:
             valid_mask = valid_mask & batch.masks
-          rendering[f'{k}_pt'] = rendering[f'{k}_pt'][valid_mask]
+          rendering[f'{k}_pt'] = pts_temp[valid_mask]
+
+          valid_mask2 = valid_mask & (rendering['acc'] > 0.9)
+          rendering[f'{k}_09_pt'] = pts_temp[valid_mask2]
 
 
       if jax.host_id() != 0:  # Only record via host 0.
         continue
 
       # log points
-      for k in rendering:
-        if k.endswith('_pt'):
+      for k in list(rendering):
+        if k.endswith('_pt') and not k.startswith('distance_percentile'):
           if k not in pts:
             pts[k] = np.array(rendering[k], dtype=np.float32)
           else:
